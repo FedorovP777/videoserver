@@ -1,0 +1,10 @@
+cmake-build-debug/
+cmake-build-debug-coverage/
+.idea/
+output/
+docs/
+.vscode/
+_deps/
+config.yaml
+*.log
+CMakeFiles/

@@ -1,0 +1,11 @@
+FROM gitlab.bonprofit.ru:5050/common/videoserver:tmp_build AS builder
+CMD echo 1
+
+FROM ubuntu:20.04
+ENV PROD_BUILD=1
+COPY --from=builder /app/build/libav_test /app/libav_test
+RUN apt-get update -y && apt-get install -y libyaml-cpp0.6 libuv1 libavfilter7 libavformat58 libavcodec58 libfmt-ocaml libcurl4 && apt-get clean autoclean && apt-get autoremove --yes && rm -rf /var/lib/{apt,dpkg,cache,log}/
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
+COPY --from=builder /app/config.yaml /app/config.yaml
+WORKDIR /app
+CMD /app/libav_test config.yaml

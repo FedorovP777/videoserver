@@ -1,0 +1,55 @@
+server_name: "lobachevsky"
+streams:
+  - src: rtsp://11.11.11.11:554/test
+    name: name_1
+    format_options:
+      - key: 'use_wallclock_as_timestamps '
+        value: '1'
+      - key: 'rtsp_transport'
+        value: 'tcp'
+    format_flags:
+      - AVFMT_FLAG_GENPTS
+      - AVFMT_FLAG_IGNDTS
+    dst:
+      - name: original_480
+        path: file-480-%Y-%m-%d-{unixtime}.ts
+        file_duration_sec: 30
+        time_base: 1/90000
+        rescale_ts_audio: true
+        s3_target: default
+        s3_folder: /test/
+        del_after_upload: true
+        format_options:
+          - key: 'use_wallclock_as_timestamps '
+            value: '1'
+          - key: 'rtsp_transport'
+            value: 'tcp'
+      - name: original_720
+        path: /output/file-unmuxing-%Y-%m-%d-{unixtime}.ts
+        file_duration_sec: 30
+        time_base: 1/90000
+        rescale_ts_audio: true
+        s3_target: default
+        s3_folder: /test/
+        format_options:
+          - key: 'use_wallclock_as_timestamps '
+            value: '1'
+          - key: 'rtsp_transport'
+            value: 'tcp'
+
+rabbitmq:
+  url: librabbitmq
+  interval_sec: 1
+
+s3_profiles:
+  - name: default
+    endpoint: '192.168.2.14:9000'
+    access_key_id: access_key_id
+    secret_key: secret_key
+    bucket_name: my-first-bucket
+    verify_ssl: false
+
+notification_endpoint:
+  url: 'http://192.168.2.91:8881/agent/handle_event'
+  access_key: 'safsddgew454e'
+  enable_notification: true

@@ -1,0 +1,24 @@
+FROM ubuntu:20.04 AS builder
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/Moscow
+RUN apt-get update -y
+RUN apt-get install -y \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    wget \
+    unzip \
+    clang-tidy \
+    clang-format
+WORKDIR /app
+RUN apt-get update -y
+ADD pkglist .
+RUN apt-get install -y $(cat pkglist)
+RUN mkdir build && mkdir /output
+RUN pwd
+COPY . ./
+RUN pwd && ls -la . && ls -la ./src
+RUN cd build && cmake -DCMAKE_BUILD_TYPE=Release /app
+RUN cmake --build /app/build --target libav_test
+CMD /app/build/libav_test

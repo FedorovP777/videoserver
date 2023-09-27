@@ -1,0 +1,155 @@
+image: ubuntu:20.04
+
+stages:
+  - build
+  - test
+  - build_release
+
+.job_template:
+  variables:
+    IMAGE_TAG: $CI_REGISTRY_IMAGE:latest
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_BUILDKIT: 1
+  services:
+    - name: docker:19-dind
+      alias: docker
+      # in our experience although you'd assume this would be sufficient, this did
+      # nothing to prevent connection errors without `DOCKER_TLS_CERTDIR` being set
+      # to an empty string, and I would call that beyond mildly infuriating.
+      command: [ "--tls=false" ]
+  image: docker:19.03.12
+
+BuilReleaseImage:
+  extends: .job_template
+  variables:
+    IMAGE_TAG: $CI_REGISTRY_IMAGE:release
+    IMAGE_TAG_BUILD: $CI_REGISTRY_IMAGE:tmp_build
+    #    ENV: PROD
+  stage: build_release
+  when: manual
+  needs: [ ]
+
+  script:
+    - echo $IMAGE_TAG
+    - echo $IMAGE_TAG_BUILD
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker pull $IMAGE_TAG || true
+    - docker pull $IMAGE_TAG_BUILD || true
+    - docker build -f Dockerfile.build -t $IMAGE_TAG_BUILD  --build-arg BUILDKIT_INLINE_CACHE=1 .
+    - docker push $IMAGE_TAG_BUILD
+    - docker build -f Dockerfile.release -t $IMAGE_TAG  --build-arg BUILDKIT_INLINE_CACHE=1 .
+    - docker push $IMAGE_TAG
+
+BuildBaseImage:
+  extends: .job_template
+  rules:
+    - changes:
+        - .gitlab-ci.yml
+        - Dockerfile
+        - pkglist
+  script:
+    - echo $IMAGE_TAG
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker pull $IMAGE_TAG
+    - docker build -t $IMAGE_TAG --build-arg BUILDKIT_INLINE_CACHE=1 .
+    - docker push $IMAGE_TAG
+  variables:
+    ENV: PROD
+    DOCKER_BUILDKIT: 1
+
+.template_tests: &test
+  stage: test
+  needs:
+    - job: BuildBaseImage
+      optional: true
+  image:
+    name: $CI_REGISTRY_IMAGE:latest
+    entrypoint: [ "" ]
+
+#PVS-Studio:
+#  <<: *test
+#  script:
+#    - |
+#      cp -r ./ /app
+#      cd /app
+#      pwd
+#      pvs-studio-analyzer credentials PVS-Studio Free FREE-FREE-FREE-FREE
+#      cmake .
+#      cmake --build . --target pvs-studio
+
+Tests:
+  extends: .template_tests
+  script:
+    - |
+      cp -r ./ /app
+      cd /app
+      cmake .
+      cmake --build . --target run_tests
+      ./run_tests
+
+S3IntegrationTest:
+  extends: .template_tests
+  script:
+    - |
+      cp -r ./ /app
+      cd /app
+      cmake .
+      cmake --build . --target integration_s3_test
+      ./integration_s3_test
+  services:
+    - name: bitnami/minio:latest
+      alias: s3server
+  variables:
+    MINIO_SCHEME: http
+    MINIO_FORCE_NEW_KEYS: "yes"
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+    MINIO_DEFAULT_BUCKETS: 'vod-bucket:public'
+    MINIO_ACCESS_KEY: foobar
+    MINIO_SECRET_KEY: barfoobarfoo
+    S3_ACCESS_KEY_ID: minioadmin
+    S3_SECRET_KEY: minioadmin
+    S3_FOLDER: minioadmin
+    S3_BUCKET: vod-bucket
+    S3_ENDPOINT_URL: s3server:9000
+    S3_HOST: s3server:9000
+
+
+MemoryLeakTests:
+  extends: .template_tests
+  script:
+    - |
+      cp -r ./ /app
+      cd /app
+      cmake .
+      cmake --build . --target $TEST_NAME
+      valgrind --tool=massif --massif-out-file=massif_report ./$TEST_NAME && ms_print ./massif_report | head -n 40 || exit 0
+  parallel:
+    matrix:
+      - TEST_NAME:
+          - mem_leak_curl
+          - mem_leak_crypto
+          - mem_leak_timer
+
+
+ClantFormat:
+  extends: .template_tests
+  script:
+    - |
+      cp -r ./ /app
+      cd /app
+      find ./src -iname *.h -o -iname *.cpp | grep -v third-party | xargs clang-format -style=file --dry-run --Werror -assume-filename=.clang-tidy
+
+ClantTidy:
+  extends: .template_tests
+  script:
+    - |
+      cp -r ./ /app
+      cd /app
+      cmake .
+      cmake --build . --target clang_tidy
+
+
+
